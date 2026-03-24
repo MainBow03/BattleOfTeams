@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Battle Survival 10x100</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #1a202c; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow-x: hidden; }
+        .hide { display: none !important; }
+        
+        /* Stili per le card dei personaggi */
+        .char-card {
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+            position: relative;
+        }
+        .char-card:hover:not(.eliminated):not(.disabled) {
+            transform: translateY(-5px) scale(1.05);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            z-index: 10;
+        }
+        .char-card.selected {
+            border: 4px solid #facc15;
+            transform: scale(1.05);
+            box-shadow: 0 0 20px #facc15;
+        }
+        .char-card.eliminated {
+            filter: grayscale(100%) opacity(0.4);
+            pointer-events: none;
+        }
+        .char-card.disabled {
+            pointer-events: none;
+            opacity: 0.7;
+        }
+        
+        /* Contenitore Immagini per mantenere le proporzioni */
+        .img-container {
+            width: 100%;
+            aspect-ratio: 1/1;
+            overflow: hidden;
+            border-radius: 0.5rem 0.5rem 0 0;
+            background-color: #2d3748;
+        }
+        .img-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: top; /* Centra sui volti */
+        }
+
+        /* Badge Punti */
+        .points-badge {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: #ef4444;
+            color: white;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 14px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+            border: 2px solid white;
+            z-index: 5;
+        }
+
+        /* Panchina Scrollabile */
+        .bench-container {
+            display: flex;
+            gap: 1.5rem;
+            overflow-x: auto;
+            padding: 1rem 0.5rem;
+            scrollbar-width: thin;
+            scrollbar-color: #4a5568 #1a202c;
+            min-height: 250px;
+        }
+        .bench-container::-webkit-scrollbar { height: 8px; }
+        .bench-container::-webkit-scrollbar-track { background: #1a202c; }
+        .bench-container::-webkit-scrollbar-thumb { background-color: #4a5568; border-radius: 20px; }
+
+        .team-bench {
+            min-width: 350px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 1rem;
+            padding: 1rem;
+            border-top: 5px solid var(--team-color);
+        }
+
+        .bench-members {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        
+        .bench-char {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 1/1;
+            border-radius: 0.25rem;
+            overflow: hidden;
+            border: 2px solid transparent;
+        }
+        .bench-char img { width: 100%; height: 100%; object-fit: cover; }
+        
+        .timer-text { font-size: 3rem; font-weight: 900; text-shadow: 0 0 10px rgba(255,255,255,0.5); }
+        .top-list-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid white;}
+        
+        /* Boost Bar */
+        .boost-bar-container {
+            width: 100%;
+            height: 12px;
+            background: #4a5568;
+            border-radius: 6px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        .boost-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #f59e0b, #fbbf24);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        /* Glassmorphism */
+        .glass {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Notifiche -->
+    <div id="notification-area" class="fixed top-4 right-4 z-50 flex flex-col gap-2"></div>
+
+    <!-- SCHERMATA INIZIALE / LOGIN -->
+    <div id="login-screen" class="flex-1 flex items-center justify-center p-4">
+        <div class="glass p-8 rounded-2xl shadow-2xl w-full max-w-md text-center">
+            <h1 class="text-4xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">Battle Survival</h1>
+            <p class="text-gray-400 mb-8">Il Gioco di Votazione Finale</p>
+            
+            <input type="text" id="player-name" placeholder="Il tuo nome..." class="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 mb-4 text-white focus:outline-none focus:border-blue-500" maxlength="15">
+            
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <button id="btn-create-room" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition">Crea Stanza</button>
+                <button id="btn-join-room-mode" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-lg transition">Unisciti</button>
+            </div>
+
+            <div id="join-section" class="hide mt-4 border-t border-gray-700 pt-4">
+                <input type="text" id="room-code-input" placeholder="Codice Stanza" class="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-3 mb-4 text-white font-mono uppercase text-center text-xl">
+                <button id="btn-join-room" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg transition">Entra</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SCHERMATA LOBBY -->
+    <div id="lobby-screen" class="hide flex-1 flex flex-col items-center justify-center p-4">
+        <div class="glass p-8 rounded-2xl shadow-2xl w-full max-w-2xl">
+            <div class="text-center mb-6">
+                <h2 class="text-3xl font-bold mb-2">Lobby</h2>
+                <div class="inline-block bg-gray-800 px-6 py-2 rounded-lg font-mono text-2xl tracking-widest text-yellow-400 border border-gray-600" id="display-room-code">XXXXX</div>
+                <p class="text-gray-400 mt-2 text-sm">Condividi questo codice con gli amici</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Lista Giocatori -->
+                <div class="bg-gray-800 bg-opacity-50 p-4 rounded-xl">
+                    <h3 class="font-bold text-lg mb-3 border-b border-gray-600 pb-2">Giocatori Connessi (<span id="player-count">0</span>)</h3>
+                    <ul id="players-list" class="space-y-2 max-h-60 overflow-y-auto"></ul>
+                </div>
+
+                <!-- Impostazioni Host -->
+                <div id="host-settings" class="bg-gray-800 bg-opacity-50 p-4 rounded-xl opacity-50 pointer-events-none">
+                    <h3 class="font-bold text-lg mb-3 border-b border-gray-600 pb-2 flex justify-between">
+                        Impostazioni 
+                        <span id="host-badge" class="hide text-xs bg-red-500 px-2 py-1 rounded text-white">Sei l'Host</span>
+                    </h3>
+                    
+                    <div class="mb-4">
+                        <label class="block text-sm text-gray-400 mb-1">Numero di Team (2-20)</label>
+                        <input type="number" id="config-teams" min="2" max="20" value="10" class="w-full bg-gray-700 rounded px-3 py-2 text-white">
+                    </div>
+                    <div class="mb-6">
+                        <label class="block text-sm text-gray-400 mb-1">Membri per Team (2-10)</label>
+                        <input type="number" id="config-members" min="2" max="10" value="10" class="w-full bg-gray-700 rounded px-3 py-2 text-white">
+                    </div>
+                    
+                    <button id="btn-start-game" class="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-3 rounded-lg shadow-lg transition">AVVIA PARTITA</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SCHERMATA DI GIOCO PRINCIPALE -->
+    <div id="game-screen" class="hide flex-1 flex flex-col h-screen overflow-hidden">
+        
+        <!-- HEADER: Top 5 e Top 10 -->
+        <div class="bg-gray-900 border-b border-gray-700 p-2 flex flex-col items-center shrink-0 shadow-lg z-20">
+            <!-- Top 5 Teams -->
+            <div class="text-center w-full max-w-5xl mb-2">
+                <div class="text-xs text-gray-400 font-bold tracking-widest mb-1 uppercase">Top 5 Team</div>
+                <div id="top-teams-container" class="flex justify-center gap-4 flex-wrap"></div>
+            </div>
+            <!-- Top 10 Warriors -->
+            <div class="text-center w-full max-w-6xl">
+                <div class="text-xs text-gray-400 font-bold tracking-widest mb-1 uppercase">Top 10 Guerrieri</div>
+                <div id="top-warriors-container" class="flex justify-center gap-2 flex-wrap"></div>
+            </div>
+        </div>
+
+        <!-- MAIN STAGE: Sfidanti e Timer -->
+        <div class="flex-1 relative flex flex-col items-center justify-center p-4 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-gray-800 to-black overflow-y-auto">
+            
+            <!-- Indicatore Fase -->
+            <div id="phase-indicator" class="text-2xl font-bold mb-2 text-yellow-400 uppercase tracking-widest text-center"></div>
+            
+            <!-- Timer -->
+            <div id="game-timer" class="timer-text mb-6">15</div>
+
+            <!-- Avviso Revoto -->
+            <div id="revote-warning" class="hide text-red-500 font-bold text-xl mb-4 animate-pulse">PAREGGIO! NUOVA VOTAZIONE TRA I PAREGGIATI!</div>
+
+            <!-- Sfidanti (Centro) -->
+            <div id="challengers-container" class="flex flex-wrap justify-center gap-6 max-w-5xl">
+                <!-- Generato da JS -->
+            </div>
+
+            <!-- Selezione Team (mostrato solo in fase cheering) -->
+            <div id="cheering-container" class="hide flex-col items-center w-full max-w-4xl mt-4">
+                <p class="text-xl mb-4 text-center">Scegli il team per cui fare il tifo!</p>
+                <div id="cheering-teams-grid" class="flex flex-wrap justify-center gap-3"></div>
+            </div>
+        </div>
+
+        <!-- BENCH (Panchine) -->
+        <div class="bg-gray-900 border-t border-gray-700 shrink-0 z-20">
+            <!-- Controlli Boost -->
+            <div id="boost-controls" class="hide bg-gray-800 p-2 text-center flex items-center justify-center gap-4 border-b border-gray-700">
+                <span class="font-bold">Il tuo Team: <span id="my-team-name" class="text-yellow-400">Nessuno</span></span>
+                <button id="btn-activate-boost" class="hide bg-yellow-500 hover:bg-yellow-600 text-black font-black px-4 py-1 rounded shadow-lg animate-bounce">ATTIVA x2 AL PROSSIMO VOTO!</button>
+                <span id="boost-active-badge" class="hide bg-green-500 text-white font-bold px-3 py-1 rounded">VOTO x2 ATTIVO!</span>
+            </div>
+            
+            <div id="bench-area" class="bench-container">
+                <!-- Generato da JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- SCHERMATA FINE GIOCO -->
+    <div id="end-screen" class="hide flex-1 flex flex-col items-center justify-center p-4 bg-black">
+        <div class="glass p-10 rounded-3xl text-center max-w-4xl w-full border-4 border-yellow-500 shadow-[0_0_50px_rgba(234,179,8,0.3)]">
+            <h1 class="text-6xl font-black text-yellow-400 mb-4 uppercase">Vittoria!</h1>
+            <h2 class="text-3xl font-bold text-white mb-8" id="winner-team-name">Team Name</h2>
+            
+            <div id="winner-members" class="flex flex-wrap justify-center gap-4 mb-8">
+                <!-- Membri ordinati per punti -->
+            </div>
+            
+            <button onclick="location.reload()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg text-xl">Torna alla Home</button>
+        </div>
+    </div>
+
+    <script type="module">
+        // Import Firebase SDKs
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+
+        // Firebase Config (Fornito dall'utente)
+        const firebaseConfig = {
+            apiKey: "AIzaSyCXLgrRBih8pSYqFetmy7HAoRl4WLVUdtI",
+            authDomain: "battlesurvival10x100.firebaseapp.com",
+            projectId: "battlesurvival10x100",
+            storageBucket: "battlesurvival10x100.firebasestorage.app",
+            messagingSenderId: "53334857087",
+            appId: "1:53334857087:web:7fd4df20bb8fbe8a31364a",
+            measurementId: "G-0XMBKR451F"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // --- DATABASE LOCALE DEI TEAM E COLORI ---
+        const colors = [
+            '#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', 
+            '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#14b8a6',
+            '#6366f1', '#d946ef', '#eab308', '#22c55e', '#64748b',
+            '#f43f5e', '#0ea5e9', '#10b981', '#a855f7', '#fb923c'
+        ];
+
+        const teamsDb = {
+            "Gumball": ["Darwin|https://i.pinimg.com/1200x/39/33/4f/39334ff0d654c0dc39f58bd1cf6d74e9.jpg", "Richard|https://i.pinimg.com/736x/3f/57/61/3f5761972402157f6969c91edc160322.jpg", "Anais|https://i.pinimg.com/736x/68/6f/3c/686f3c8f998bf2d90e5e4c294e007788.jpg", "Banana Joe|https://i.pinimg.com/736x/f0/42/c1/f042c1a7036380677180a1b08846f560.jpg", "Penny|https://i.pinimg.com/736x/84/57/0f/84570f93dff547c5fdf77bedce61fa1f.jpg", "Carrie|https://i.pinimg.com/736x/f8/80/04/f88004410be1feb8f3ccd00b231aeedc.jpg", "Mr Small|https://i.pinimg.com/1200x/5b/57/f2/5b57f21f46d7e3ebe0ae692c6cdf0773.jpg", "Signorina Scimmia|https://i.pinimg.com/736x/af/51/cc/af51cc1b3c46ae962a68511a754a3e79.jpg", "Signora Robinson|https://i.pinimg.com/736x/ac/31/60/ac3160d1a5a50d7e95147b228e76f75c.jpg", "Sarah|https://i.pinimg.com/736x/1d/ef/50/1def50974ef22a4a2f81e2083762d69e.jpg"],
+            "Steven Universe": ["Steven|https://i.pinimg.com/736x/c3/b9/54/c3b95466d2b30e0e9f3c142cc423d59f.jpg", "Bismuth|https://i.pinimg.com/736x/c4/77/09/c4770964d250d7c2ee69418c696147f2.jpg", "Peridot|https://i.pinimg.com/736x/d5/3e/f6/d53ef6f0ec684f7f0f888971dded59fb.jpg", "Greg|https://i.pinimg.com/736x/5c/6b/b2/5c6bb205c122193ccc5397e38c81e05a.jpg", "Cipollo|https://i.pinimg.com/736x/81/bf/32/81bf322dfda3c5955abd4dfcc8a00dcc.jpg", "Diamante Blu|https://i.pinimg.com/736x/e6/69/48/e669483bce7ee787e852c6185bd59313.jpg", "Rose Quartz|https://i.pinimg.com/1200x/44/08/28/440828318cdf070619f2827f89b91e20.jpg", "Connie|https://i.pinimg.com/736x/26/77/ca/2677ca342d77c3e3fed0bdf1530a620e.jpg", "Sadie|https://i.pinimg.com/736x/08/3f/69/083f69b79978e97e85815a3973af536e.jpg", "Acquamarina|https://i.pinimg.com/1200x/8d/da/da/8ddada878bbbcde3fef44953b1e38b1d.jpg"],
+            "Disventure Camp OGs": ["Tom|https://i.pinimg.com/736x/db/d4/2a/dbd42a105be5cd57fa6a0ed9a8ab7df8.jpg", "Ellie|https://i.pinimg.com/736x/fc/7f/74/fc7f741c4f8d55ecbef60cfb1d9ae41c.jpg", "Gabby|https://i.pinimg.com/736x/bb/51/73/bb5173f2bd99216cecd2aeb9dfe3e07c.jpg", "Fiore|https://i.pinimg.com/736x/f8/96/78/f8967885166332718c28742d52b25338.jpg", "Ashley|https://i.pinimg.com/736x/f4/12/54/f41254f60d4c222cf59e1abbb4b0ae99.jpg", "Jake|https://i.pinimg.com/736x/bc/a0/76/bca0765eaa0f1e88b0070a5b92c22de7.jpg", "Alec|https://i.pinimg.com/736x/15/fd/1b/15fd1b394832b056d96e6899a3c6d98f.jpg", "Derek|https://i.pinimg.com/736x/cd/23/a2/cd23a235172b3f74996e72ef90349c99.jpg", "Miriam|https://i.pinimg.com/736x/1d/6b/c3/1d6bc35b2b16b54b1616c64495ef0fc6.jpg", "Trevor|https://i.pinimg.com/736x/b7/40/16/b7401638a3a522491815f2021d5f56ef.jpg"],
+            "Disventure Camp mix": ["Hunter|https://i.pinimg.com/736x/7b/5e/9f/7b5e9fe00c0acb7cb9097b45ea38b567.jpg", "Tess|https://i.pinimg.com/736x/61/82/38/6182388e0406534a29d33cbd0c22e931.jpg", "Aiden|https://i.pinimg.com/736x/c8/f3/df/c8f3dfa06d4270eaf3a323d6230cf963.jpg", "James|https://i.pinimg.com/736x/be/52/90/be529011c269a014ec538bf09c080229.jpg", "Riya|https://i.pinimg.com/736x/92/34/04/92340449d6c19e8b5bf50050774d622d.jpg", "Anastasia|https://i.pinimg.com/736x/bc/29/fe/bc29fe78e9dbd6278696ecbf90ef3e36.jpg", "Benji|https://i.pinimg.com/736x/d0/c2/aa/d0c2aa78daf761a02dfcc6d431153b1b.jpg", "Spencer|https://i.pinimg.com/736x/bf/59/ed/bf59ed2600fad55148700fc2f761c50e.jpg", "Isabelle|https://i.pinimg.com/736x/5e/1a/f6/5e1af69ac6196b02e015133b3de84fd3.jpg", "Ted|https://i.pinimg.com/736x/52/aa/9a/52aa9a2e6fe86f8ffdb0f4020b0208b6.jpg"],
+            "Doraemon": ["Doraemon|https://i.pinimg.com/736x/ef/43/fc/ef43fc1923e2904d1007b3b8b7a2e509.jpg", "Dorami|https://i.pinimg.com/736x/04/94/d2/0494d285c8aafa48a183067e10fb8294.jpg", "Nobita|https://i.pinimg.com/736x/7a/b6/4f/7ab64f39eb8d649bd9b3488c1a3795b5.jpg", "Shizuka|https://i.pinimg.com/736x/e8/32/e9/e832e99751395ec9345203142961270f.jpg", "Suneo|https://i.pinimg.com/1200x/c2/a0/09/c2a0099bbddf9be08f3672f0cf197d5f.jpg", "Gian|https://i.pinimg.com/1200x/5f/26/30/5f263068d646a05b936412b5ee877389.jpg", "Tamako|https://i.pinimg.com/1200x/8e/bc/33/8ebc330b88e399787fb907f833e86a68.jpg", "Dekisugi|https://i.pinimg.com/1200x/1f/9e/a8/1f9ea898fbe80e0dcf0dddd0176cfcec.jpg", "Jaiko|https://i.pinimg.com/736x/7d/1d/ad/7d1dad761681670ce7de6bb8b2c2040a.jpg", "Sensei|https://i.pinimg.com/736x/fb/71/4c/fb714c5b5049a90d33e11169cec2ae5a.jpg"],
+            "I Griffin": ["Peter|https://i.pinimg.com/736x/98/23/8d/98238daeb04b270f264d04aa1aaa4b90.jpg", "Lois|https://i.pinimg.com/736x/85/25/4f/85254f2fdd3cdd2ae65fb9c13dd5c6c7.jpg", "Stewie|https://i.pinimg.com/1200x/ff/37/ea/ff37ea1eb4a933d3ce1613a255e1fa6b.jpg", "Meg|https://i.pinimg.com/736x/70/4b/f6/704bf6886a220c51675acca7d8a3d328.jpg", "Chris|https://i.pinimg.com/1200x/e5/5b/d2/e55bd209efb901cbde706c5721628f79.jpg", "Brian|https://i.pinimg.com/736x/9d/f1/5b/9df15b4082e1ec6fbb73572afaee3e61.jpg", "Quagmire|https://i.pinimg.com/736x/b9/87/0d/b9870d64bae93d2258caaa4acb6b4f5c.jpg", "Joe|https://i.pinimg.com/736x/9c/01/0f/9c010f8f78f5b28ff1754cf4906862f8.jpg", "Consuela|https://i.pinimg.com/736x/e5/de/62/e5de62897cda8a085f7b9db768c5cd6f.jpg", "Adam West|https://i.pinimg.com/1200x/3c/f1/e6/3cf1e6ab8929a70453fcd291fb72c5ef.jpg"],
+            "Spongebob": ["Spongebob|https://i.pinimg.com/1200x/11/2b/02/112b02f6220c310fbe2ec4b5461307a0.jpg", "Patrick|https://i.pinimg.com/736x/f9/86/ab/f986ab47de3f882f52ef4e6f407b3a8f.jpg", "Squiddi|https://i.pinimg.com/736x/62/10/6a/62106a01e80eecc143069f9e3fe4b8a0.jpg", "Plankton|https://i.pinimg.com/736x/4c/27/4f/4c274f1e983ecd433672cfef1060872f.jpg", "Mr Krab|https://i.pinimg.com/1200x/ed/e9/7b/ede97b3d72828cefba46a310dfb0015b.jpg", "Sandy|https://i.pinimg.com/1200x/11/5b/0b/115b0b5b56f96879c6d0129a9f024373.jpg", "Signora Puff|https://i.pinimg.com/736x/6e/6a/36/6e6a36ebb0a425bc9199acbb441188da.jpg", "Perla|https://i.pinimg.com/736x/dc/06/27/dc06271a27c86f7df5838381d917c7c5.jpg", "Karen|https://i.pinimg.com/736x/0c/cd/1b/0ccd1bbb8e9b4fc63dadba07c6b748a5.jpg", "Gary|https://i.pinimg.com/736x/1c/4f/c4/1c4fc4197eec23b67f69e778bd20ccc1.jpg"],
+            "casa dei loud": ["Lincoln|https://i.pinimg.com/736x/f4/11/15/f411158f77bbbc7f8ef9705e1c5efcef.jpg", "Leni|https://i.pinimg.com/1200x/87/73/8b/87738b4e4f43996a81c663f6b29bc33d.jpg", "Luan|https://i.pinimg.com/1200x/71/72/e9/7172e9391dc9eae52480c0ce863d6b83.jpg", "Lola|https://i.pinimg.com/736x/8c/61/81/8c6181809c54e1de59339f0c7e8faed8.jpg", "Lisa|https://i.pinimg.com/736x/52/8a/73/528a73fdf88495d96bf12a882caa371b.jpg", "Luna|https://i.pinimg.com/1200x/65/fe/7d/65fe7df3d9372af9c276d3054bae42f1.jpg", "Lana|https://i.pinimg.com/736x/de/6b/dc/de6bdcc7193d7c9ea914a8d13c64de62.jpg", "Lucy|https://i.pinimg.com/1200x/4e/a5/f3/4ea5f30046368431c4c43d941611f78e.jpg", "Lynn|https://i.pinimg.com/736x/aa/d0/ec/aad0ec9926fd54dce525f5caf4805867.jpg", "Lori|https://i.pinimg.com/1200x/f9/de/d8/f9ded8dcc56e1611e4f862affc6b272b.jpg"],
+            "Winx": ["Bloom|https://i.pinimg.com/736x/67/36/92/673692d1646003265790d6c9f90fbae6.jpg", "Stella|https://i.pinimg.com/1200x/1d/1f/4f/1d1f4f78fa29401c1b098a802f23a261.jpg", "Flora|https://i.pinimg.com/736x/5f/79/ec/5f79ec9e634a2101e58cb3e3c39f2872.jpg", "Musa|https://i.pinimg.com/1200x/89/0a/4d/890a4d86e6c1a4f2ba6dcd11e39cf77f.jpg", "Tecna|https://i.pinimg.com/736x/cf/24/c9/cf24c9c5b6fb0357c25d8d7c16aa9e24.jpg", "Aisha|https://i.pinimg.com/736x/7e/9d/18/7e9d185e319289a914b467d6c1226770.jpg", "Roxy|https://i.pinimg.com/736x/4f/68/09/4f68097b813df074ef15709fbdb1eb43.jpg", "Icy|https://i.pinimg.com/1200x/ab/fa/72/abfa723dc6f0aafaa9c2c15fb9377b34.jpg", "Valtor|https://i.pinimg.com/736x/70/2e/d7/702ed740eeaaf599ad65303e1c32a98f.jpg", "Andy|https://i.pinimg.com/736x/a0/ad/91/a0ad9143a52dcb5c4b7b276c4da17e9a.jpg"],
+            "Looney Tunes": ["Bugs|https://i.pinimg.com/736x/e7/4f/17/e74f17bb1aac685c2121cdaf714d8dcc.jpg", "Lola|https://i.pinimg.com/736x/13/1e/68/131e68220b63637302615cb8a1e99790.jpg", "Daffy|https://i.pinimg.com/1200x/1e/cc/26/1ecc264729c1aecb956e06342f2aa2bc.jpg", "Tina|https://i.pinimg.com/736x/aa/0c/f8/aa0cf8cad11afa920399044974f93400.jpg", "Porky Pig|https://i.pinimg.com/1200x/ed/62/95/ed62956161cda3c557ce352d4a093585.jpg", "Speedy Gonzales|https://i.pinimg.com/736x/b3/b0/d4/b3b0d4a2c761f68e745bbf3873cf34b9.jpg", "Yosemite Sam|https://i.pinimg.com/736x/49/f2/09/49f209d391b281649449172f2de84db4.jpg", "Taz|https://i.pinimg.com/736x/7f/a1/54/7fa1545757ca4b747643190188171c77.jpg", "Nonnina LT|https://i.pinimg.com/1200x/d5/b8/81/d5b8817d66d78920243010084c48a439.jpg", "Pepe Le Pew|https://i.pinimg.com/736x/c9/1a/e3/c91ae3e20e743428b84f6a19fd97e62a.jpg"],
+            "Teen Titans Go!!": ["Robin|https://i.pinimg.com/736x/5d/35/49/5d35494567434ccd0cfa2d9df2b8774a.jpg", "Stellarubia|https://i.pinimg.com/1200x/eb/e0/02/ebe002b44d87434ef89622308f86323c.jpg", "Corvina|https://i.pinimg.com/736x/92/91/db/9291dbef281abc1f05e709c94fe17eba.jpg", "BB|https://i.pinimg.com/736x/ec/0a/de/ec0adede38da0dbe7ff612f55469e08a.jpg", "Cyborg|https://i.pinimg.com/736x/a4/d6/1b/a4d61bad3fa314dc1180b17e572a36c5.jpg", "Iella|https://i.pinimg.com/736x/61/02/3f/61023f777ce7a877ad78328a8979925a.jpg", "Coso|https://i.pinimg.com/736x/46/f3/df/46f3df43116544a1e5f6dc204f32187b.jpg", "Trigon|https://i.pinimg.com/736x/d8/77/df/d877df96f38925a341b52a7f237f1ab8.jpg", "Terra|https://i.pinimg.com/736x/72/71/b2/7271b243dfb44b39af577bc854083621.jpg", "Bumblebee|https://i.pinimg.com/1200x/90/4a/5d/904a5d888a076ce0148953f259fa891e.jpg"],
+            "Teen Titans": ["Robin|https://i.pinimg.com/736x/b7/9c/39/b79c3967b3711a27854d1ae33faaf152.jpg", "Stellarubia|https://i.pinimg.com/736x/c1/b3/cc/c1b3cc2fba814f1a7f9f5f87311f63fe.jpg", "Corvina|https://i.pinimg.com/1200x/78/38/4d/78384db37044c852d8b9b474c5144076.jpg", "BB|https://i.pinimg.com/736x/af/3e/44/af3e44fa2fba9b8a16990b334acec3f2.jpg", "Cyborg|https://i.pinimg.com/736x/a9/72/3f/a9723f8696f02f6d44a0cc6f4ce6ab0b.jpg", "Slade|https://i.pinimg.com/1200x/ed/cc/2f/edcc2f4600f2becd32d85c6ae1c60508.jpg", "Madame Rouge|https://i.pinimg.com/736x/b4/a0/d6/b4a0d63702043941bef6a79a5e0a5e81.jpg", "Terra|https://i.pinimg.com/736x/f4/8c/fe/f48cfe12b3e2418c2c2688eab0e66f3d.jpg", "Kid Flash|https://i.pinimg.com/736x/d1/7e/3f/d17e3f0650aec0429a40e0e5e65a1373.jpg", "Blackfire|https://i.pinimg.com/1200x/a3/83/62/a38362025d86725144dada527ff8ec96.jpg"],
+            "Phineas&Ferb": ["Phineas|https://i.pinimg.com/1200x/a9/22/a3/a922a3247ce3bc9f4d72fe000e2ec2a5.jpg", "Ferb|https://i.pinimg.com/736x/e7/a8/98/e7a89824469fc347a421379eee2f1f50.jpg", "Perry|https://i.pinimg.com/736x/56/cd/38/56cd38b252d1c8374d52e658a5a6d36a.jpg", "Candace|https://i.pinimg.com/736x/e3/9d/95/e39d9504c7131e87c662b1f0537c3d7b.jpg", "Dr Doofenshmirtz|https://i.pinimg.com/736x/02/94/b1/0294b1048776eeab29275eee328d3c3b.jpg", "Vanessa|https://i.pinimg.com/736x/5f/f0/bd/5ff0bdc0eb48fccddea344ba1bff40bc.jpg", "Isabella|https://i.pinimg.com/736x/37/13/80/3713801234083670b8e4bfbb96c75104.jpg", "Stacy|https://i.pinimg.com/736x/78/8a/df/788adf97b7b51a3e0018d4a222dc2e68.jpg", "Jeremy|https://i.pinimg.com/736x/c2/ba/21/c2ba21a56babae8de99cdef60ec529e9.jpg", "Maggiore Monogram|https://i.pinimg.com/736x/bd/8a/df/bd8adf0b6fcbeabe3425d7e252ffc9ba.jpg"],
+            "My Little Pony": ["Twilight|https://i.pinimg.com/1200x/3c/11/f6/3c11f6372fec64103de3eef197a33f6e.jpg", "Rainbow Dash|https://i.pinimg.com/1200x/f2/61/79/f26179f6cfb3f6331d5843fb83d29fdd.jpg", "Pinkie Pie|https://i.pinimg.com/736x/90/a7/99/90a79936ec36260a6aae441ff45939ac.jpg", "Rarity|https://i.pinimg.com/736x/de/43/3b/de433b7378ec8dc03316f3f35f9a89a7.jpg", "Applejack|https://i.pinimg.com/736x/da/9f/05/da9f05c7a4275507ea8a559361184879.jpg", "Fluttershy|https://i.pinimg.com/736x/8c/18/02/8c1802842104e3745e5bda3cb70d6d18.jpg", "Spike|https://i.pinimg.com/736x/1e/f3/3a/1ef33a6e234e4ed941875f2078de2d50.jpg", "Princess Celestia|https://i.pinimg.com/736x/21/c3/23/21c323cbf88db5e13b006265171dabfd.jpg", "Princess Luna|https://i.pinimg.com/1200x/9a/41/7a/9a417ac0118a68f555658fa5f934800.jpg", "Discord|https://i.pinimg.com/1200x/63/52/e2/6352e28fc4e458322243cedd5b70a2df.jpg"],
+            "Miracolous": ["Ladybug|https://i.pinimg.com/736x/ab/da/48/abda489bacccc6054ad206659960502f.jpg", "Chat Noir|https://i.pinimg.com/736x/c3/ed/77/c3ed7755f4cbee4cd34316139d132597.jpg", "Rena Rouge|https://i.pinimg.com/736x/db/04/d0/db04d0fb6444e86795f30a1fc7fe69e6.jpg", "Queen Bee|https://i.pinimg.com/1200x/77/42/a2/7742a2e426d294b4580b1b6b552f1cca.jpg", "Monarch|https://i.pinimg.com/736x/08/92/10/08921031e9e45eb42e9a8c683193f40a.jpg", "Chrysalis|https://i.pinimg.com/736x/30/0b/92/300b92d05a60570ef5a29499ab428855.jpg", "Capri Kid|https://i.pinimg.com/736x/49/a4/61/49a461d527df281f95b4c80c7eb9ab70.jpg", "Argos|https://i.pinimg.com/1200x/6a/9f/d8/6a9fd82262e386ce6fc7144d3d2ef9f7.jpg", "Ryuko|https://i.pinimg.com/736x/54/b8/1a/54b81ac58977bc55ea74f7747df3af7f.jpg", "Vesperia|https://i.pinimg.com/736x/17/1d/82/171d82e25a8a816885939682d2e6b09e.jpg"],
+            "American Dad": ["Stan|https://i.pinimg.com/736x/79/3e/bd/793ebd0ecf4c379f1ee62031d2bfb225.jpg", "Francine|https://i.pinimg.com/736x/36/5f/8e/365f8ef9da1d68aaf52ce9b7bfd3c7d5.jpg", "Hayley|https://i.pinimg.com/736x/d2/67/75/d267759ba5490e0895e6b1544f949819.jpg", "Steve|https://i.pinimg.com/736x/7e/e9/08/7ee9081c223810fc78d56320e39c4811.jpg", "Roger|https://i.pinimg.com/736x/f1/f8/1a/f1f81ac9589b210ef098b43b05a55470.jpg", "Klaus|https://i.pinimg.com/1200x/eb/34/6f/eb346f1c8811b60f1a0f323316daa838.jpg", "Jeff|https://i.pinimg.com/1200x/f3/02/b7/f302b7bf8eff5a65a76f0c3fda1ab2c1.jpg", "Bullock|https://i.pinimg.com/736x/27/f0/85/27f085ae31b43442cd21403a3e40ea16.jpg", "Toshi|https://i.pinimg.com/736x/bf/33/e0/bf33e03630c6c8e95838f9288869d1ca.jpg", "Snot|https://i.pinimg.com/736x/2f/4d/d2/2f4dd2a53b9f09e1da81f5eaf342fce8.jpg"],
+            "era glaciale": ["Manny|https://i.pinimg.com/1200x/2b/ed/6b/2bed6b5c210effc32394fc9fb89d79c1.jpg", "Sid|https://i.pinimg.com/736x/66/45/f3/6645f39ad53348f3e83a227d62e02890.jpg", "Diego|https://i.pinimg.com/736x/d5/ee/41/d5ee417cbf05d9e7b336fb60838a86d8.jpg", "Ellie|https://i.pinimg.com/736x/f5/56/7e/f5567e3e5ceb5eff0111adcf42ffa7d7.jpg", "Eddie&Crash|https://i.pinimg.com/1200x/cc/57/3b/cc573b9cc570a099bc56580cb588d445.jpg", "Nonnina|https://i.pinimg.com/736x/8d/16/b3/8d16b3e184ec5fc4c907a4113dd6d6d9.jpg", "Pesca|https://i.pinimg.com/736x/36/72/08/367208f9621663b42db0db8cc8d73c5d.jpg", "Capitan Gutt|https://i.pinimg.com/736x/cb/be/3d/cbbe3dd6d0174742b0ddf2c0c09f19d7.jpg", "Shira|https://i.pinimg.com/736x/12/17/a4/1217a4b3f7201b105b6437b285daf092.jpg", "Squint|https://i.pinimg.com/736x/82/7e/89/827e895b06c82a458eeece0cd02523eb.jpg"],
+            "Adventure Time": ["Finn|https://i.pinimg.com/736x/f6/81/0a/f6810a60ad46cab07dc496acef61fe78.jpg", "Jake|https://i.pinimg.com/736x/c2/6f/0e/c26f0edae21794ce35a788e00bf9ce27.jpg", "Gommarosa|https://i.pinimg.com/736x/46/6e/5c/466e5cd48f9f4a031a20e9e8c76f01e4.jpg", "Marceline|https://i.pinimg.com/736x/a7/d0/1d/a7d01d9cf5cc5b7c7606bb4407513d35.jpg", "BMO|https://i.pinimg.com/736x/7d/8a/41/7d8a4180e98080c019b4dfd1cbdbb650.jpg", "Gunter|https://i.pinimg.com/736x/38/f7/fa/38f7fa5a9546ec2c83ef0d9c457ee1c3.jpg", "Re Ghiaccio|https://i.pinimg.com/1200x/41/cc/e6/41cce698bdbac2ec906c3f22ee591c4d.jpg", "Fiona|https://i.pinimg.com/1200x/0b/9d/85/0b9d85c6c70be88471ad753b014de88b.jpg", "Principessa Fiamma|https://i.pinimg.com/736x/86/7e/99/867e99d580d1480d60f8ca425cd181ca.jpg", "PSB|https://i.pinimg.com/736x/06/99/fe/0699fe407360d7fc485298ada5a5830c.jpg"],
+            "Regular Show": ["Mordecai|https://i.pinimg.com/736x/19/70/63/197063319bf9870d545a8f570a7843ca.jpg", "Rigby|https://i.pinimg.com/1200x/24/58/9e/24589eefdbee85fec34505642d580b43.jpg", "Muscleman|https://i.pinimg.com/1200x/cf/af/c0/cfafc0181f15cbcd03ee7eea7b3f331b.jpg", "Skips|https://i.pinimg.com/736x/35/3b/0a/353b0a2d88c06d880b16bc599dd66320.jpg", "Pops|https://i.pinimg.com/736x/b1/8b/1d/b18b1ddc0c4c1b0718acb8a8870fca50.jpg", "Benson|https://i.pinimg.com/736x/4f/04/26/4f04266b8d054bff8bcd9b3df72d22c0.jpg", "Batti cinque|https://i.pinimg.com/736x/5c/f8/4f/5cf84fd6a6ee9c14a5c40e403c13e684.jpg", "Margaret|https://i.pinimg.com/736x/e8/a7/3f/e8a73f72950788fa8205835b97903c0f.jpg", "Eileen|https://i.pinimg.com/736x/0f/11/23/0f1123f581f6d4ec0f4de0916e956605.jpg", "Thomas|https://i.pinimg.com/736x/16/af/05/16af0510ba3cad1db291cc050b4e2cbc.jpg"],
+            "Mix": ["Johnny Bravo|https://i.pinimg.com/736x/58/bb/8c/58bb8c85a3294d2df89671ca0d3a2990.jpg", "Cosmo|https://i.pinimg.com/736x/47/22/99/472299b4c669c052c662df1730403d83.jpg", "Wanda|https://i.pinimg.com/736x/76/63/2c/76632cdd5765893ba8fbe9de12485dff.jpg", "Zig|https://i.pinimg.com/736x/8f/c6/a8/8fc6a86f610fd0e817fc144066574f24.jpg", "Rosalinda|https://i.pinimg.com/736x/e2/53/5b/e2535b4b9cebbf3dbaaea3f277047e39.jpg", "Gwen|https://i.pinimg.com/736x/21/00/78/21007892f5813799389fac5c81f7852c.jpg", "Lisa|https://i.pinimg.com/736x/e5/2d/fe/e52dfee5a58f5dad19f9e0592c63a7cd.jpg", "Stitch|https://i.pinimg.com/736x/81/e5/cc/81e5cc666ce0f06f3ff11c2205e8425c.jpg", "Superboy|https://i.pinimg.com/1200x/b3/47/49/b3474921779f09267b0be321b8f76b98.jpg", "Ferocia|https://i.pinimg.com/736x/9c/31/15/9c31155d6aa8c5ee9b807c9d022d0fcb.jpg"]
+        };
+
+        // --- STATO LOCALE ---
+        let user = null;
+        let myName = "";
+        let currentRoomId = null;
+        let roomData = null;
+        let isHost = false;
+        let timerInterval = null;
+        
+        // Collezione Firebase
+        const ROOMS_COLLECTION = "game_rooms";
+
+        // --- UTILS ---
+        const show = id => document.getElementById(id).classList.remove('hide');
+        const hide = id => document.getElementById(id).classList.add('hide');
+        const generateCode = () => Math.random().toString(36).substring(2, 7).toUpperCase();
+        const shuffle = array => [...array].sort(() => Math.random() - 0.5);
+        
+        function showNotification(msg, type='info') {
+            const area = document.getElementById('notification-area');
+            const el = document.createElement('div');
+            el.className = `p-3 rounded shadow-lg text-white ${type === 'error' ? 'bg-red-600' : 'bg-blue-600'} transition-opacity duration-500`;
+            el.innerText = msg;
+            area.appendChild(el);
+            setTimeout(() => { el.style.opacity = '0'; setTimeout(()=>el.remove(), 500); }, 3000);
+        }
+
+        // --- AUTH ---
+        onAuthStateChanged(auth, (u) => {
+            if (u) user = u;
+        });
+
+        // --- GESTIONE SCHERMATE E LOBBY ---
+        document.getElementById('btn-join-room-mode').onclick = () => show('join-section');
+        
+        document.getElementById('btn-create-room').onclick = async () => {
+            myName = document.getElementById('player-name').value.trim();
+            if(!myName) return showNotification("Inserisci un nome!", "error");
+            if(!user) await signInAnonymously(auth);
+
+            currentRoomId = generateCode();
+            isHost = true;
+
+            const roomRef = doc(db, ROOMS_COLLECTION, currentRoomId);
+            await setDoc(roomRef, {
+                host: user.uid,
+                state: "lobby",
+                config: { teams: 10, members: 10 },
+                players: {
+                    [user.uid]: { name: myName, cheeredTeam: null, boostProgress: 0, boostActive: false }
+                },
+                game: {}
+            });
+
+            listenToRoom();
+            hide('login-screen');
+            show('lobby-screen');
+        };
+
+        document.getElementById('btn-join-room').onclick = async () => {
+            myName = document.getElementById('player-name').value.trim();
+            const code = document.getElementById('room-code-input').value.trim().toUpperCase();
+            if(!myName || !code) return showNotification("Dati mancanti", "error");
+            if(!user) await signInAnonymously(auth);
+
+            const roomRef = doc(db, ROOMS_COLLECTION, code);
+            const docSnap = await getDoc(roomRef);
+            if(!docSnap.exists()) return showNotification("Stanza non trovata", "error");
+            
+            if(docSnap.data().state !== "lobby") return showNotification("Partita già iniziata!", "error");
+
+            currentRoomId = code;
+            isHost = false;
+
+            await updateDoc(roomRef, {
+                [`players.${user.uid}`]: { name: myName, cheeredTeam: null, boostProgress: 0, boostActive: false }
+            });
+
+            listenToRoom();
+            hide('login-screen');
+            show('lobby-screen');
+        };
+
+        // --- LISTENER FIREBASE ---
+        function listenToRoom() {
+            const roomRef = doc(db, ROOMS_COLLECTION, currentRoomId);
+            onSnapshot(roomRef, (snapshot) => {
+                if(!snapshot.exists()) return;
+                const oldState = roomData ? roomData.state : null;
+                const oldPhase = roomData?.game?.phase;
+                
+                roomData = snapshot.data();
+                updateUI();
+
+                // Gestione Timer centralizzata basata sui dati server
+                if (roomData.game && roomData.game.timerEnd) {
+                    startLocalTimer(roomData.game.timerEnd);
+                } else {
+                    stopLocalTimer();
+                }
+
+                // Auto-risoluzione host se tutti hanno votato
+                if (isHost && roomData.state === "playing" && roomData.game.phase === "voting") {
+                    const numPlayers = Object.keys(roomData.players).length;
+                    const numVotes = roomData.game.votes ? Object.keys(roomData.game.votes).length : 0;
+                    if (numVotes === numPlayers && numPlayers > 0) {
+                        resolveRound(); // Tutti hanno votato, salta timer
+                    }
+                }
+                
+                // Auto-risoluzione host se tutti hanno tifato
+                if (isHost && roomData.state === "cheering") {
+                    const allCheered = Object.values(roomData.players).every(p => p.cheeredTeam);
+                    if (allCheered) startGameRound();
+                }
+            });
+        }
+
+        // --- LOGICA HOST ---
+        document.getElementById('btn-start-game').onclick = async () => {
+            if(!isHost) return;
+            const numTeams = parseInt(document.getElementById('config-teams').value) || 10;
+            const numMembers = parseInt(document.getElementById('config-members').value) || 10;
+
+            // Selezione casuale Teams
+            let allTeamNames = Object.keys(teamsDb);
+            allTeamNames = shuffle(allTeamNames).slice(0, Math.min(numTeams, 20));
+
+            const gameData = {
+                teamsList: allTeamNames,
+                teamColors: {},
+                members: {},
+                alive: [],
+                points: {},
+                timerEnd: Date.now() + 30000 // 30 sec per tifare
+            };
+
+            allTeamNames.forEach((t, index) => {
+                gameData.teamColors[t] = colors[index % colors.length];
+                let members = shuffle(teamsDb[t]).slice(0, Math.min(numMembers, 10));
+                
+                let parsedMembers = members.map(m => {
+                    const [name, img] = m.split('|');
+                    return { id: `${t}_${name}`, name, img, team: t };
+                });
+                
+                gameData.members[t] = parsedMembers;
+                gameData.alive.push(...parsedMembers.map(m => m.id));
+                parsedMembers.forEach(m => gameData.points[m.id] = 0);
+            });
+
+            const roomRef = doc(db, ROOMS_COLLECTION, currentRoomId);
+            await updateDoc(roomRef, {
+                state: "cheering",
+                game: gameData
+            });
+        };
+
+        async function startGameRound(isRevote = false, tiedChars = []) {
+            if(!isHost) return;
+            
+            // Controllo Vittoria
+            const aliveSet = new Set(roomData.game.alive.map(id => getCharData(id).team));
+            if (roomData.game.alive.length <= 1 || aliveSet.size === 1) {
+                await updateDoc(doc(db, ROOMS_COLLECTION, currentRoomId), { state: "ended" });
+                return;
+            }
+
+            let challengers = [];
+            if (isRevote) {
+                challengers = tiedChars;
+            } else {
+                let available = shuffle([...roomData.game.alive]);
+                // Assicurati che siano di team diversi se possibile
+                let selectedTeams = new Set();
+                for (let id of available) {
+                    let team = getCharData(id).team;
+                    if (!selectedTeams.has(team) || challengers.length === available.length) {
+                        challengers.push(id);
+                        selectedTeams.add(team);
+                    }
+                    if (challengers.length === 4) break;
+                }
+                // Se non arriviamo a 4, prendiamo i primi rimanenti
+                if (challengers.length < 4) {
+                    let remaining = available.filter(id => !challengers.includes(id));
+                    challengers = [...challengers, ...remaining].slice(0, 4);
+                }
+            }
+
+            const roomRef = doc(db, ROOMS_COLLECTION, currentRoomId);
+            await updateDoc(roomRef, {
+                state: "playing",
+                "game.phase": "voting",
+                "game.challengers": challengers,
+                "game.votes": {},
+                "game.timerEnd": Date.now() + 15000,
+                "game.eliminatedThisRound": null
+            });
+        }
+
+        async function resolveRound() {
+            if(!isHost || roomData.game.phase !== "voting") return;
+            
+            // Imposta fase a calcolo per evitare doppi trigger
+            const roomRef = doc(db, ROOMS_COLLECTION, currentRoomId);
+            await updateDoc(roomRef, { "game.phase": "calculating", "game.timerEnd": 0 });
+
+            const votes = roomData.game.votes || {};
+            const tallies = {};
+            roomData.game.challengers.forEach(c => tallies[c] = 0);
+
+            // Conta i voti
+            Object.values(votes).forEach(v => {
+                if (tallies[v.vote] !== undefined) tallies[v.vote] += v.weight;
+            });
+
+            // Trova chi ha più voti
+            let maxVotes = -1;
+            for (let c in tallies) { if (tallies[c] > maxVotes) maxVotes = tallies[c]; }
+            
+            const losers = Object.keys(tallies).filter(c => tallies[c] === maxVotes);
+
+            let newAlive = [...roomData.game.alive];
+            let newPoints = { ...roomData.game.points };
+            let updates = {};
+
+            if (losers.length === 1 || (losers.length > 1 && roomData.game.isRevote)) {
+                // Eliminazione!
+                let eliminatedId = losers.length === 1 ? losers[0] : losers[Math.floor(Math.random() * losers.length)];
+                newAlive = newAlive.filter(id => id !== eliminatedId);
+                
+                // Assegna punti ai sopravvissuti di questo round
+                let survivors = roomData.game.challengers.filter(id => id !== eliminatedId);
+                survivors.forEach(id => newPoints[id] += 1);
+
+                // Calcola Boost per i giocatori
+                let playersUpdate = { ...roomData.players };
+                survivors.forEach(id => {
+                    let team = getCharData(id).team;
+                    Object.keys(playersUpdate).forEach(uid => {
+                        if (playersUpdate[uid].cheeredTeam === team) {
+                            playersUpdate[uid].boostProgress = Math.min(15, (playersUpdate[uid].boostProgress || 0) + 1);
+                        }
+                    });
+                });
+
+                updates = {
+                    "game.phase": "results",
+                    "game.eliminatedThisRound": eliminatedId,
+                    "game.alive": newAlive,
+                    "game.points": newPoints,
+                    "game.isRevote": false,
+                    players: playersUpdate
+                };
+
+                await updateDoc(roomRef, updates);
+                setTimeout(() => startGameRound(), 2500); // Prossimo round dopo 2.5 sec
+            } else {
+                // Pareggio
+                updates = {
+                    "game.phase": "results",
+                    "game.eliminatedThisRound": "TIE",
+                    "game.isRevote": true
+                };
+                await updateDoc(roomRef, updates);
+                setTimeout(() => startGameRound(true, losers), 2500);
+            }
+        }
+
+
+        // --- LOGICA CLIENT / UI ---
+
+        function updateUI() {
+            if(!roomData) return;
+            document.getElementById('display-room-code').innerText = currentRoomId;
+
+            // Lobby UI
+            if (roomData.state === "lobby") {
+                const list = document.getElementById('players-list');
+                list.innerHTML = "";
+                document.getElementById('player-count').innerText = Object.keys(roomData.players).length;
+                for(let uid in roomData.players) {
+                    list.innerHTML += `<li class="p-2 bg-gray-700 rounded flex justify-between">
+                        <span>${roomData.players[uid].name}</span>
+                        ${uid === roomData.host ? '<span class="text-yellow-400 text-xs">HOST</span>' : ''}
+                    </li>`;
+                }
+
+                if(isHost) {
+                    document.getElementById('host-settings').classList.remove('opacity-50', 'pointer-events-none');
+                    show('host-badge');
+                }
+            } 
+            else if (roomData.state === "cheering" || roomData.state === "playing") {
+                hide('lobby-screen');
+                show('game-screen');
+                
+                renderTopBars();
+                renderBench();
+
+                if (roomData.state === "cheering") {
+                    show('cheering-container');
+                    document.getElementById('phase-indicator').innerText = "Fase di Tifo - Scegli il tuo Team!";
+                    renderCheeringSelection();
+                    document.getElementById('challengers-container').innerHTML = '';
+                    hide('boost-controls');
+                } else {
+                    hide('cheering-container');
+                    renderChallengers();
+                    renderBoostUI();
+                    
+                    if (roomData.game.phase === "voting") {
+                        if (roomData.game.isRevote) show('revote-warning');
+                        else hide('revote-warning');
+                        document.getElementById('phase-indicator').innerText = "VOTA CHI ELIMINARE!";
+                    } else if (roomData.game.phase === "results") {
+                        hide('revote-warning');
+                        if(roomData.game.eliminatedThisRound === "TIE") {
+                            document.getElementById('phase-indicator').innerText = "PAREGGIO!";
+                        } else {
+                            let elimName = getCharData(roomData.game.eliminatedThisRound).name;
+                            document.getElementById('phase-indicator').innerText = `${elimName} ELIMINATO!`;
+                        }
+                    }
+                }
+            }
+            else if (roomData.state === "ended") {
+                hide('game-screen');
+                show('end-screen');
+                renderWinner();
+            }
+        }
+
+        function renderTopBars() {
+            // Top 5 Teams (per somma punti dei vivi)
+            let teamScores = {};
+            roomData.game.teamsList.forEach(t => teamScores[t] = 0);
+            roomData.game.alive.forEach(id => {
+                let char = getCharData(id);
+                teamScores[char.team] += roomData.game.points[id];
+            });
+            
+            let sortedTeams = Object.keys(teamScores).sort((a,b) => teamScores[b] - teamScores[a]).slice(0, 5);
+            const tc = document.getElementById('top-teams-container');
+            tc.innerHTML = sortedTeams.map((t, i) => `
+                <div class="flex flex-col items-center bg-gray-800 rounded px-3 py-1 border-b-2" style="border-color:${roomData.game.teamColors[t]}">
+                    <span class="text-yellow-400 font-bold text-sm">#${i+1}</span>
+                    <span class="text-white text-xs whitespace-nowrap">${t}</span>
+                    <span class="text-gray-400 text-xs">${teamScores[t]} pt</span>
+                </div>
+            `).join('');
+
+            // Top 10 Warriors
+            let sortedWarriors = [...roomData.game.alive].sort((a,b) => roomData.game.points[b] - roomData.game.points[a]).slice(0, 10);
+            const wc = document.getElementById('top-warriors-container');
+            wc.innerHTML = sortedWarriors.map((id, i) => {
+                let char = getCharData(id);
+                return `
+                <div class="relative group" title="${char.name} (${char.team})">
+                    <img src="${char.img}" class="top-list-avatar" style="border-color:${roomData.game.teamColors[char.team]}">
+                    <div class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold">${roomData.game.points[id]}</div>
+                </div>`;
+            }).join('');
+        }
+
+        function renderCheeringSelection() {
+            const grid = document.getElementById('cheering-teams-grid');
+            const myCheer = roomData.players[user.uid]?.cheeredTeam;
+            
+            grid.innerHTML = roomData.game.teamsList.map(t => {
+                let color = roomData.game.teamColors[t];
+                let isSelected = myCheer === t;
+                return `
+                <button onclick="cheerFor('${t}')" 
+                    class="px-4 py-2 rounded font-bold text-white transition ${isSelected ? 'scale-110 shadow-[0_0_15px_rgba(255,255,255,0.8)]' : 'opacity-80 hover:opacity-100'}"
+                    style="background-color: ${color}; border: ${isSelected ? '2px solid white' : 'none'}">
+                    ${t}
+                </button>`;
+            }).join('');
+        }
+
+        window.cheerFor = async (teamName) => {
+            if(roomData.state !== "cheering") return;
+            const roomRef = doc(db, ROOMS_COLLECTION, currentRoomId);
+            await updateDoc(roomRef, { [`players.${user.uid}.cheeredTeam`]: teamName });
+        };
+
+        function renderChallengers() {
+            const c = document.getElementById('challengers-container');
+            if(!roomData.game.challengers) return;
+            
+            const myVote = roomData.game.votes?.[user.uid]?.vote;
+            const phase = roomData.game.phase;
+            const eliminated = roomData.game.eliminatedThisRound;
+
+            c.innerHTML = roomData.game.challengers.map(id => {
+                let char = getCharData(id);
+                let color = roomData.game.teamColors[char.team];
+                
+                let isEliminated = phase === "results" && eliminated === id;
+                let isSelected = myVote === id;
+                let isDisabled = phase !== "voting" || myVote; // Disabilita se non è voting o ha già votato
+                
+                // Effetto voto per mostrare chi ha votato (se risultati o tutti han votato)
+                let votesCount = 0;
+                if (roomData.game.votes) {
+                    Object.values(roomData.game.votes).forEach(v => { if(v.vote === id) votesCount += v.weight; });
+                }
+
+                return `
+                <div class="char-card w-40 md:w-48 flex flex-col items-center bg-gray-800 rounded-lg pb-2 ${isEliminated ? 'eliminated' : ''} ${isSelected ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}"
+                     onclick="castVote('${id}')" style="border-bottom: 4px solid ${color}">
+                    
+                    <div class="points-badge">${roomData.game.points[id]}</div>
+                    
+                    <div class="img-container">
+                        <img src="${char.img}" alt="${char.name}">
+                    </div>
+                    
+                    <div class="mt-2 text-center w-full px-2">
+                        <div class="font-bold text-lg leading-tight truncate text-white">${char.name}</div>
+                        <div class="text-xs uppercase tracking-wide mt-1 truncate" style="color: ${color}">${char.team}</div>
+                    </div>
+
+                    ${(phase === "results" || myVote) ? `<div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div class="bg-black bg-opacity-70 text-white font-black text-3xl p-2 rounded-full border-2 border-white">${votesCount}</div>
+                    </div>` : ''}
+                </div>`;
+            }).join('');
+        }
+
+        window.castVote = async (charId) => {
+            if(roomData.game.phase !== "voting") return;
+            if(roomData.game.votes?.[user.uid]) return; // Già votato
+            
+            let pData = roomData.players[user.uid];
+            let weight = pData.boostActive ? 2 : 1;
+
+            const roomRef = doc(db, ROOMS_COLLECTION, currentRoomId);
+            
+            let updates = {
+                [`game.votes.${user.uid}`]: { vote: charId, weight: weight }
+            };
+
+            if (pData.boostActive) {
+                updates[`players.${user.uid}.boostActive`] = false;
+            }
+
+            await updateDoc(roomRef, updates);
+        };
+
+        function renderBoostUI() {
+            show('boost-controls');
+            let pData = roomData.players[user.uid];
+            document.getElementById('my-team-name').innerText = pData.cheeredTeam || "Nessuno";
+            
+            let btn = document.getElementById('btn-activate-boost');
+            let badge = document.getElementById('boost-active-badge');
+            
+            if (pData.boostActive) {
+                hide('btn-activate-boost');
+                show('boost-active-badge');
+            } else if (pData.boostProgress >= 15 && roomData.game.phase === "voting" && !roomData.game.votes?.[user.uid]) {
+                show('btn-activate-boost');
+                hide('boost-active-badge');
+                btn.onclick = async () => {
+                    await updateDoc(doc(db, ROOMS_COLLECTION, currentRoomId), {
+                        [`players.${user.uid}.boostActive`]: true,
+                        [`players.${user.uid}.boostProgress`]: pData.boostProgress - 15
+                    });
+                };
+            } else {
+                hide('btn-activate-boost');
+                hide('boost-active-badge');
+            }
+        }
+
+        function renderBench() {
+            const container = document.getElementById('bench-area');
+            let myCheer = roomData.players[user.uid]?.cheeredTeam;
+
+            container.innerHTML = roomData.game.teamsList.map(t => {
+                let color = roomData.game.teamColors[t];
+                let members = roomData.game.members[t];
+                
+                // Barra boost se è il team tifato
+                let boostHtml = '';
+                if (myCheer === t) {
+                    let progress = roomData.players[user.uid]?.boostProgress || 0;
+                    let pct = Math.min(100, (progress / 15) * 100);
+                    boostHtml = `
+                    <div class="mt-2">
+                        <div class="flex justify-between text-xs text-gray-400 mb-1">
+                            <span>Energia Boost</span>
+                            <span>${progress}/15</span>
+                        </div>
+                        <div class="boost-bar-container">
+                            <div class="boost-bar-fill" style="width: ${pct}%"></div>
+                        </div>
+                    </div>`;
+                }
+
+                let membersHtml = members.map(m => {
+                    let isAlive = roomData.game.alive.includes(m.id);
+                    return `
+                    <div class="bench-char ${!isAlive ? 'opacity-20 grayscale' : ''}" style="border-color: ${isAlive ? color : 'transparent'}">
+                        <img src="${m.img}" title="${m.name}">
+                        ${isAlive ? `<div class="absolute -top-1 -right-1 bg-red-500 text-[9px] text-white px-1 rounded-full font-bold z-10">${roomData.game.points[m.id]}</div>` : ''}
+                    </div>`;
+                }).join('');
+
+                return `
+                <div class="team-bench" style="--team-color: ${color}">
+                    <h3 class="font-black text-lg text-white tracking-wider mb-1">${t}</h3>
+                    ${boostHtml}
+                    <div class="bench-members">
+                        ${membersHtml}
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function renderWinner() {
+            let winTeam = "";
+            let aliveSet = new Set(roomData.game.alive.map(id => getCharData(id).team));
+            if (aliveSet.size === 1) {
+                winTeam = [...aliveSet][0];
+            } else if (roomData.game.alive.length === 1) {
+                winTeam = getCharData(roomData.game.alive[0]).team;
+            }
+
+            document.getElementById('winner-team-name').innerText = winTeam;
+            document.getElementById('winner-team-name').style.color = roomData.game.teamColors[winTeam];
+
+            let teamMembers = roomData.game.members[winTeam];
+            // Ordina per punti decrescente (la richiesta dice crescente, ma visualmente ha più senso chi ha più punti per primo, facciamo crescente come richiesto: dal meno al più)
+            teamMembers.sort((a,b) => roomData.game.points[a.id] - roomData.game.points[b.id]);
+
+            document.getElementById('winner-members').innerHTML = teamMembers.map(m => `
+                <div class="flex flex-col items-center">
+                    <img src="${m.img}" class="w-24 h-24 object-cover rounded-lg border-2" style="border-color:${roomData.game.teamColors[winTeam]}">
+                    <span class="font-bold text-sm mt-1">${m.name}</span>
+                    <span class="text-xs bg-red-600 px-2 py-0.5 rounded text-white">${roomData.game.points[m.id]} pt</span>
+                </div>
+            `).join('');
+        }
+
+        // --- GESTIONE TIMER ---
+        function startLocalTimer(endTime) {
+            clearInterval(timerInterval);
+            const el = document.getElementById('game-timer');
+            
+            timerInterval = setInterval(() => {
+                let remaining = Math.max(0, Math.ceil((endTime - Date.now()) / 1000));
+                el.innerText = remaining;
+                
+                if (remaining <= 5) el.classList.add('text-red-500');
+                else el.classList.remove('text-red-500');
+
+                if (remaining <= 0) {
+                    clearInterval(timerInterval);
+                    if (isHost && roomData.game.phase === "voting") resolveRound();
+                }
+            }, 500);
+        }
+
+        function stopLocalTimer() {
+            clearInterval(timerInterval);
+            document.getElementById('game-timer').innerText = "0";
+        }
+
+        function getCharData(id) {
+            let [teamName, charName] = id.split('_');
+            return roomData.game.members[teamName].find(m => m.name === charName);
+        }
+
+    </script>
+</body>
+</html>
