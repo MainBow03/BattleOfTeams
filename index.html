@@ -480,32 +480,39 @@
         async function startGameRound(isRevote = false, tiedChars = []) {
             if(!isHost) return;
             
-            // Controllo Vittoria
-            const aliveSet = new Set(roomData.game.alive.map(id => getCharData(id).team));
-            if (roomData.game.alive.length <= 1 || aliveSet.size === 1) {
+            // Controllo Vittoria (se resta solo 1 team)
+            const aliveTeamsSet = new Set(roomData.game.alive.map(id => getCharData(id).team));
+            if (roomData.game.alive.length <= 1 || aliveTeamsSet.size === 1) {
                 await updateDoc(doc(db, ROOMS_COLLECTION, currentRoomId), { state: "ended" });
                 return;
             }
 
             let challengers = [];
             if (isRevote) {
+                // In caso di pareggio, si sfidano solo i pareggiati (anche se dello stesso team)
                 challengers = tiedChars;
             } else {
                 let available = shuffle([...roomData.game.alive]);
-                // Assicurati che siano di team diversi se possibile
                 let selectedTeams = new Set();
+                
+                // 1. Tenta di scegliere 4 giocatori da 4 team diversi
                 for (let id of available) {
                     let team = getCharData(id).team;
-                    if (!selectedTeams.has(team) || challengers.length === available.length) {
+                    if (!selectedTeams.has(team)) {
                         challengers.push(id);
                         selectedTeams.add(team);
                     }
                     if (challengers.length === 4) break;
                 }
-                // Se non arriviamo a 4, prendiamo i primi rimanenti
+
+                // 2. Se non abbiamo raggiunto 4 sfidanti (perché ci sono meno di 4 team rimasti)
+                // allora aggiungiamo i rimanenti fino a 4 (o fino a esaurimento)
                 if (challengers.length < 4) {
-                    let remaining = available.filter(id => !challengers.includes(id));
-                    challengers = [...challengers, ...remaining].slice(0, 4);
+                    let remainingCandidates = available.filter(id => !challengers.includes(id));
+                    for (let id of remainingCandidates) {
+                        challengers.push(id);
+                        if (challengers.length === 4) break;
+                    }
                 }
             }
 
@@ -844,9 +851,9 @@
 
         function renderWinner() {
             let winTeam = "";
-            let aliveSet = new Set(roomData.game.alive.map(id => getCharData(id).team));
-            if (aliveSet.size === 1) {
-                winTeam = [...aliveSet][0];
+            let aliveTeamsSet = new Set(roomData.game.alive.map(id => getCharData(id).team));
+            if (aliveTeamsSet.size === 1) {
+                winTeam = [...aliveTeamsSet][0];
             } else if (roomData.game.alive.length === 1) {
                 winTeam = getCharData(roomData.game.alive[0]).team;
             }
@@ -855,7 +862,7 @@
             document.getElementById('winner-team-name').style.color = roomData.game.teamColors[winTeam];
 
             let teamMembers = roomData.game.members[winTeam];
-            // Ordina per punti decrescente (la richiesta dice crescente, ma visualmente ha più senso chi ha più punti per primo, facciamo crescente come richiesto: dal meno al più)
+            // Ordina per punti crescente come richiesto
             teamMembers.sort((a,b) => roomData.game.points[a.id] - roomData.game.points[b.id]);
 
             document.getElementById('winner-members').innerHTML = teamMembers.map(m => `
